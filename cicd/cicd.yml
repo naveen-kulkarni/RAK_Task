@@ -1,0 +1,60 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v2
+        with:
+          java-version: '11'
+
+      - name: Build with Maven
+        run: |
+          ./mvnw package -DskipTests
+
+      - name: Build and push Docker image
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+          IMAGE_NAME: my-docker-image
+          TAG: latest
+        run: |
+          docker build -t $IMAGE_NAME .
+          echo $DOCKER_PASSWORD | docker login -u $DOCKER_USERNAME --password-stdin
+          docker tag $IMAGE_NAME $DOCKER_USERNAME/$IMAGE_NAME:$TAG
+          docker push $DOCKER_USERNAME/$IMAGE_NAME:$TAG
+
+      - name: Run tests
+        run: |
+          # Run any necessary tests here
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Install kubectl
+        uses: azure/aks-set-context@v1
+        with:
+          install-kubectl: true
+
+      - name: Deploy to EKS
+        env:
+          KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
+        run: |
+          echo "$KUBE_CONFIG_DATA" > kubeconfig
+          export KUBECONFIG=$(pwd)/kubeconfig
+          kubectl apply -f deployment.yaml
